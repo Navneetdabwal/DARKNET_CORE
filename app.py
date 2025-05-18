@@ -1,171 +1,174 @@
 import os
-import random
+import telebot
 import requests
 from flask import Flask, request
-from telegram import Bot, Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardRemove
-from telegram.ext import Dispatcher, CommandHandler, CallbackContext, MessageHandler, Filters, CallbackQueryHandler
 
-TOKEN = os.environ.get("BOT_TOKEN")
-bot = Bot(token=TOKEN)
+BOT_TOKEN = os.environ.get("BOT_TOKEN")
+bot = telebot.TeleBot(BOT_TOKEN)
 app = Flask(__name__)
-dispatcher = Dispatcher(bot, None, workers=0, use_context=True)
 
-CHANNEL_LINK = "https://t.me/NSA_Network"
-
-# ---------------- Start Message ----------------
-def start(update: Update, context: CallbackContext):
-    keyboard = [
-        [InlineKeyboardButton("✅ Verify", callback_data="verify")],
-        [InlineKeyboardButton("Join Main Channel", url=CHANNEL_LINK)]
-    ]
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    msg = (
-        "╔══『 **𝗪𝗲𝗹𝗰𝗼𝗺𝗲 𝘁𝗼 𝗗𝗔𝗥𝗞𝗡𝗘𝗧 𝗖𝗢𝗥𝗘** 』══\n"
-        "║\n"
-        "╠ ⚡ 𝘿𝙚𝙫: Navneet Dabwal\n"
-        "╠ ⚙️ 𝘽𝙤𝙩: Ultimate OSINT + CC Toolkit\n"
-        "╠ 🔐 Powered by Underground Intelligence\n"
-        "║\n"
-        "╚═══════════════════════╝"
+# --- /start Command ---
+@bot.message_handler(commands=["start"])
+def start(msg):
+    markup = telebot.types.InlineKeyboardMarkup()
+    markup.row_width = 2
+    markup.add(
+        telebot.types.InlineKeyboardButton("BIN Info", callback_data="bin"),
+        telebot.types.InlineKeyboardButton("CC Gen", callback_data="ccgen"),
+        telebot.types.InlineKeyboardButton("CC Check", callback_data="cccheck"),
+        telebot.types.InlineKeyboardButton("Fake Address", callback_data="fake"),
+        telebot.types.InlineKeyboardButton("IP Lookup", callback_data="ip"),
+        telebot.types.InlineKeyboardButton("Dark BIN Check", callback_data="dark")
     )
-    update.message.reply_text(msg, reply_markup=reply_markup)
+    ch = "https://t.me/NSA_Network"
+    verify = telebot.types.InlineKeyboardMarkup()
+    verify.add(telebot.types.InlineKeyboardButton("Main Channel", url=ch))
+    bot.send_message(msg.chat.id, f"""
+<b>✦ 𝗪𝗲𝗹𝗰𝗼𝗺𝗲 𝘁𝗼 𝗗𝗔𝗥𝗞𝗡𝗘𝗧 𝗖𝗢𝗥𝗘</b>
 
-# ---------------- Verify ----------------
-def verify_callback(update: Update, context: CallbackContext):
-    query = update.callback_query
-    query.answer()
-    keyboard = [
-        [InlineKeyboardButton("IP Info", callback_data="ip")],
-        [InlineKeyboardButton("BIN Info", callback_data="bin")],
-        [InlineKeyboardButton("CC Gen", callback_data="ccgen")],
-        [InlineKeyboardButton("CC Check", callback_data="ccchk")],
-        [InlineKeyboardButton("Fake Address", callback_data="fake")],
-        [InlineKeyboardButton("Dark BIN Check", callback_data="dark")]
-    ]
-    query.edit_message_text("Choose a command:", reply_markup=InlineKeyboardMarkup(keyboard))
+<b>⚙ Dev:</b> <code>Navneet Dabwal</code>
+<b>🧠 Power:</b> Advanced BIN, CC & IP Tools
+<b>➕ Use below features:</b>
+""", parse_mode="HTML", reply_markup=markup)
+    bot.send_message(msg.chat.id, "Join the main channel (optional):", reply_markup=verify)
 
-# ---------------- IP Info ----------------
-def ipinfo(update: Update, context: CallbackContext):
-    update.callback_query.answer()
-    update.callback_query.message.reply_text("Send an IP address to trace:")
+# --- BIN Info ---
+@bot.callback_query_handler(func=lambda call: call.data == "bin")
+def bininfo(call):
+    msg = bot.send_message(call.message.chat.id, "Enter BIN to check:")
+    bot.register_next_step_handler(msg, check_bin)
 
-def ip_lookup(update: Update, context: CallbackContext):
-    ip = update.message.text.strip()
-    try:
-        r = requests.get(f"https://ipapi.co/{ip}/json").json()
-        msg = (
-            f"IP: {r.get('ip')}\nCity: {r.get('city')}\nRegion: {r.get('region')}\n"
-            f"Country: {r.get('country_name')}\nISP: {r.get('org')}\nLatitude: {r.get('latitude')}\nLongitude: {r.get('longitude')}"
-        )
-    except:
-        msg = "Invalid IP or API error."
-    update.message.reply_text(msg)
+def check_bin(msg):
+    bin_num = msg.text.strip().replace(" ", "")
+    res = requests.get(f"https://lookup.binlist.net/{bin_num}")
+    if res.status_code != 200:
+        bot.send_message(msg.chat.id, "Invalid BIN or not found.")
+        return
+    data = res.json()
+    text = f"""
+<b>BIN:</b> {bin_num}
+<b>Scheme:</b> {data.get('scheme')}
+<b>Brand:</b> {data.get('brand')}
+<b>Type:</b> {data.get('type')}
+<b>Bank:</b> {data['bank']['name'] if 'bank' in data else 'N/A'}
+<b>Country:</b> {data['country']['name'] if 'country' in data else 'N/A'}
+"""
+    bot.send_message(msg.chat.id, text, parse_mode="HTML")
 
-# ---------------- BIN Info ----------------
-def bininfo(update: Update, context: CallbackContext):
-    update.callback_query.answer()
-    update.callback_query.message.reply_text("Send BIN to check:")
+# --- CC Generator ---
+@bot.callback_query_handler(func=lambda call: call.data == "ccgen")
+def ccgen(call):
+    msg = bot.send_message(call.message.chat.id, "Enter BIN (6-8 digits):")
+    bot.register_next_step_handler(msg, generate_cc)
 
-def bin_lookup(update: Update, context: CallbackContext):
-    bin = update.message.text.strip().replace(" ", "")[:6]
-    r = requests.get(f"https://lookup.binlist.net/{bin}")
-    if r.status_code == 200:
-        j = r.json()
-        msg = (
-            f"Scheme: {j.get('scheme')}\nBrand: {j.get('brand')}\nType: {j.get('type')}\n"
-            f"Bank: {j['bank']['name']}\nCountry: {j['country']['name']} {j['country']['emoji']}"
-        )
-    else:
-        msg = "Invalid BIN or not found."
-    update.message.reply_text(msg)
-
-# ---------------- CC Gen ----------------
-def ccgen(update: Update, context: CallbackContext):
-    update.callback_query.answer()
-    update.callback_query.message.reply_text("Send BIN (6-16 digits):")
-
-def generate_cc(bin):
-    bin = bin.ljust(16, "x")
-    cc_list = []
+def generate_cc(msg):
+    import random
+    bin = msg.text.strip()
+    months = [f"{i:02}" for i in range(1, 13)]
+    years = [str(y) for y in range(2025, 2031)]
+    generated = []
     for _ in range(10):
-        cc = ""
-        for c in bin:
-            cc += str(random.randint(0,9)) if c.lower() == "x" else c
-        mm = str(random.randint(1,12)).zfill(2)
-        yy = str(random.randint(25,29))
-        cvv = str(random.randint(100,999))
-        cc_list.append(f"{cc}|{mm}|20{yy}|{cvv}")
-    return "\n".join(cc_list)
+        cc = bin + ''.join(str(random.randint(0, 9)) for _ in range(16 - len(bin)))
+        mm = random.choice(months)
+        yy = random.choice(years)
+        cvv = str(random.randint(100, 999))
+        generated.append(f"{cc}|{mm}|{yy}|{cvv}")
+    bot.send_message(msg.chat.id, "<b>Generated CCs:</b>\n" + "\n".join(generated), parse_mode="HTML")
 
-def ccgen_input(update: Update, context: CallbackContext):
-    bin = update.message.text.strip()
-    update.message.reply_text(generate_cc(bin))
+# --- CC Check (Luhn only) ---
+@bot.callback_query_handler(func=lambda call: call.data == "cccheck")
+def cccheck(call):
+    msg = bot.send_message(call.message.chat.id, "Enter CC (format: xxxx|mm|yyyy|cvv):")
+    bot.register_next_step_handler(msg, validate_cc)
 
-# ---------------- CC Checker ----------------
-def ccchk(update: Update, context: CallbackContext):
-    update.callback_query.answer()
-    update.callback_query.message.reply_text("Simulated CC Checker: Send CC in format `xxxx|MM|YYYY|CVV`")
+def validate_cc(msg):
+    cc = msg.text.strip().split("|")[0]
+    if not cc.isdigit():
+        bot.send_message(msg.chat.id, "Invalid format.")
+        return
 
-def cc_check(update: Update, context: CallbackContext):
-    cc = update.message.text.strip()
-    update.message.reply_text(f"Live: {random.choice([True, False])} [SIMULATED]")
+    def luhn(card):
+        digits = [int(i) for i in card][::-1]
+        total = 0
+        for i, d in enumerate(digits):
+            if i % 2 == 1:
+                d *= 2
+                if d > 9:
+                    d -= 9
+            total += d
+        return total % 10 == 0
 
-# ---------------- Fake Address ----------------
-def fake(update: Update, context: CallbackContext):
-    update.callback_query.answer()
-    countries = ["US", "India", "Canada", "Germany"]
-    keyboard = [[InlineKeyboardButton(c, callback_data=f"fake_{c}")] for c in countries]
-    update.callback_query.message.reply_text("Select country:", reply_markup=InlineKeyboardMarkup(keyboard))
+    result = "Valid" if luhn(cc) else "Invalid"
+    bot.send_message(msg.chat.id, f"<b>Card:</b> {cc}\n<b>Status:</b> {result}", parse_mode="HTML")
 
-def fake_address_callback(update: Update, context: CallbackContext):
-    c = update.callback_query.data.split("_")[1]
-    update.callback_query.answer()
+# --- Fake Address Generator ---
+@bot.callback_query_handler(func=lambda call: call.data == "fake")
+def fake(call):
     fake_data = {
-        "US": "John Smith\n1234 Elm St\nNYC, NY 10001\n+1 202-555-0182",
-        "India": "Raj Sharma\nC-54, Lajpat Nagar\nDelhi, 110024\n+91 9876543210",
-        "Canada": "Emma Brown\n67 Maple Ave\nToronto, ON M4C 1Z3\n+1 416-555-0123",
-        "Germany": "Hans Müller\nBerliner Str. 23\nBerlin, 10117\n+49 30 123456"
+        "name": "Alex Parker",
+        "address": "123 Elm Street",
+        "city": "New York",
+        "state": "NY",
+        "zip": "10001",
+        "country": "USA",
+        "email": "alex.parker@example.com",
+        "phone": "+1 202-555-0147"
     }
-    update.callback_query.message.reply_text(fake_data.get(c, "Not available."))
+    text = f"""
+<b>Name:</b> {fake_data['name']}
+<b>Address:</b> {fake_data['address']}
+<b>City:</b> {fake_data['city']}
+<b>State:</b> {fake_data['state']}
+<b>Zip:</b> {fake_data['zip']}
+<b>Country:</b> {fake_data['country']}
+<b>Email:</b> {fake_data['email']}
+<b>Phone:</b> {fake_data['phone']}
+"""
+    bot.send_message(call.message.chat.id, text, parse_mode="HTML")
 
-# ---------------- Dark BIN ----------------
-def dark(update: Update, context: CallbackContext):
-    update.callback_query.answer()
-    update.callback_query.message.reply_text("Send BIN to check dark leak:")
-    
-def dark_lookup(update: Update, context: CallbackContext):
-    bin = update.message.text.strip()[:6]
-    result = random.choice(["Leaked", "Not Found", "Suspicious Activity"])
-    update.message.reply_text(f"Result: {result}")
+# --- IP Lookup ---
+@bot.callback_query_handler(func=lambda call: call.data == "ip")
+def iplook(call):
+    msg = bot.send_message(call.message.chat.id, "Send an IP to lookup:")
+    bot.register_next_step_handler(msg, lookup_ip)
 
-# ---------------- Handlers ----------------
-dispatcher.add_handler(CommandHandler("start", start))
-dispatcher.add_handler(CallbackQueryHandler(verify_callback, pattern="verify"))
-dispatcher.add_handler(CallbackQueryHandler(ipinfo, pattern="ip"))
-dispatcher.add_handler(CallbackQueryHandler(bininfo, pattern="bin"))
-dispatcher.add_handler(CallbackQueryHandler(ccgen, pattern="ccgen"))
-dispatcher.add_handler(CallbackQueryHandler(ccchk, pattern="ccchk"))
-dispatcher.add_handler(CallbackQueryHandler(fake, pattern="fake"))
-dispatcher.add_handler(CallbackQueryHandler(fake_address_callback, pattern=r"fake_"))
-dispatcher.add_handler(CallbackQueryHandler(dark, pattern="dark"))
+def lookup_ip(msg):
+    ip = msg.text.strip()
+    res = requests.get(f"http://ip-api.com/json/{ip}?fields=66846719").json()
+    if res.get("status") != "success":
+        bot.send_message(msg.chat.id, "IP not found.")
+        return
+    text = f"""
+<b>IP:</b> {ip}
+<b>ISP:</b> {res.get('isp')}
+<b>Org:</b> {res.get('org')}
+<b>City:</b> {res.get('city')}
+<b>Region:</b> {res.get('regionName')}
+<b>Country:</b> {res.get('country')}
+<b>Timezone:</b> {res.get('timezone')}
+<b>Device Info:</b> {res.get('as')}
+"""
+    bot.send_message(msg.chat.id, text, parse_mode="HTML")
 
-dispatcher.add_handler(MessageHandler(Filters.regex(r"^\d{1,3}(\.\d{1,3}){3}$"), ip_lookup))
-dispatcher.add_handler(MessageHandler(Filters.regex(r"^\d{6,16}$"), bin_lookup))
-dispatcher.add_handler(MessageHandler(Filters.regex(r"^\d{16}\|\d{2}\|\d{4}\|\d{3,4}$"), cc_check))
-dispatcher.add_handler(MessageHandler(Filters.regex(r"^\d{6,16}$"), ccgen_input))
-dispatcher.add_handler(MessageHandler(Filters.text & ~Filters.command, dark_lookup))
+# --- Dark BIN Checker ---
+@bot.callback_query_handler(func=lambda call: call.data == "dark")
+def dark(call):
+    msg = bot.send_message(call.message.chat.id, "Enter BIN to check dark leak:")
+    bot.register_next_step_handler(msg, dark_check)
 
-# ---------------- Webhook ----------------
-@app.route(f"/{TOKEN}", methods=["POST"])
+def dark_check(msg):
+    bin = msg.text.strip()
+    risky_bins = ["4700", "6011", "3528"]
+    risk = "High" if any(bin.startswith(r) for r in risky_bins) else "Low"
+    bot.send_message(msg.chat.id, f"<b>BIN:</b> {bin}\n<b>Dark Web Risk:</b> {risk}", parse_mode="HTML")
+
+# --- Flask Webhook Setup ---
+@app.route("/", methods=["GET", "POST"])
 def webhook():
-    update = Update.de_json(request.get_json(force=True), bot)
-    dispatcher.process_update(update)
-    return "ok"
-
-@app.route("/")
-def index():
-    return "Darknet Core Bot Running!"
+    if request.method == "POST":
+        bot.process_new_updates([telebot.types.Update.de_json(request.stream.read().decode("utf-8"))])
+        return "OK", 200
+    return "Bot is Running", 200
 
 if __name__ == "__main__":
-    bot.set_webhook(f"https://your-app-name.onrender.com/{TOKEN}")
-    app.run(port=5000)
+    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
